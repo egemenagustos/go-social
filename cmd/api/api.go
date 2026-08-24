@@ -1,6 +1,7 @@
 package main
 
 import (
+	store "go-social/internal/storage"
 	"log"
 	"net/http"
 	"time"
@@ -11,10 +12,19 @@ import (
 
 type application struct {
 	config config
+	store  store.Storage
+}
+
+type dbConfig struct {
+	addr         string
+	maxOpenConns int
+	maxIdleConns int
+	maxIdleTime  string
 }
 
 type config struct {
 	addr string
+	db   dbConfig
 }
 
 func (app *application) mount() *chi.Mux {
