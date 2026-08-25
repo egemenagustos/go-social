@@ -17,6 +17,7 @@ type Post struct {
 	Tags      []string  `json:"tags"`
 	CreatedAt string    `json:"created_at"`
 	UpdatedAt string    `json:"updated_at"`
+	Version   int       `json:"version"`
 	Comments  []Comment `json:"comments"`
 }
 
@@ -37,6 +38,9 @@ func (s *PostStore) Create(ctx context.Context, post *Post) error {
 	INSERT INTO posts (id,content,title,user_id,tags)
 	VALUES($1, $2, $3, $4, $5) RETURNING id, created_at, updated_at
 	`
+
+	ctx, cancel := context.WithTimeout(ctx, QueryTimeoutDuration)
+	defer cancel()
 
 	err = s.db.QueryRowContext(
 		ctx,
@@ -63,10 +67,12 @@ func (s *PostStore) GetById(ctx context.Context, id string) (*Post, error) {
 	var post Post
 	query :=
 		`
-		SELECT id, title, content, user_id, created_at, tags, updated_at
+		SELECT id, title, content, user_id, created_at, tags, updated_at, version
 		FROM posts 
 		where id=$1
 		`
+	ctx, cancel := context.WithTimeout(ctx, QueryTimeoutDuration)
+	defer cancel()
 
 	err := s.db.QueryRowContext(
 		ctx,
@@ -80,6 +86,7 @@ func (s *PostStore) GetById(ctx context.Context, id string) (*Post, error) {
 		&post.CreatedAt,
 		pq.Array(&post.Tags),
 		&post.UpdatedAt,
+		&post.Version,
 	)
 
 	if err != nil {
@@ -97,6 +104,9 @@ func (s *PostStore) GetById(ctx context.Context, id string) (*Post, error) {
 func (s *PostStore) Delete(ctx context.Context, id string) error {
 
 	query := `DELETE FROM posts where id = $1`
+
+	ctx, cancel := context.WithTimeout(ctx, QueryTimeoutDuration)
+	defer cancel()
 
 	result, err := s.db.ExecContext(
 		ctx,
@@ -123,20 +133,31 @@ func (s *PostStore) Delete(ctx context.Context, id string) error {
 func (s *PostStore) Update(ctx context.Context, post *Post) error {
 	query :=
 		`
-		UPDATE posts SET title=$1, content=$2
-		WHERE id = $3
+		UPDATE posts SET title=$1, content=$2, version = version + 1
+		WHERE id = $3 AND version = $4
+		RETURNING version
 		`
+	ctx, cancel := context.WithTimeout(ctx, QueryTimeoutDuration)
+	defer cancel()
 
-	_, err := s.db.ExecContext(
+	err := s.db.QueryRowContext(
 		ctx,
 		query,
 		post.Title,
 		post.Content,
 		post.Id,
+		post.Version,
+	).Scan(
+		&post.Version,
 	)
 
 	if err != nil {
-		return err
+		switch {
+		case errors.Is(err, sql.ErrNoRows):
+			return ErrNotFound
+		default:
+			return err
+		}
 	}
 
 	return nil

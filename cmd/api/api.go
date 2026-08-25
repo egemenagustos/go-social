@@ -60,6 +60,14 @@ func (app *application) mount() *chi.Mux {
 			})
 
 		})
+
+		//users
+		r.Route("/users", func(r chi.Router) {
+			r.Route("/{userId}", func(r chi.Router) {
+				r.Get("/", app.getUserHandler)
+			})
+		})
+
 	})
 
 	return r

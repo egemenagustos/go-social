@@ -3,6 +3,8 @@ package store
 import (
 	"context"
 	"database/sql"
+
+	"github.com/google/uuid"
 )
 
 type Comment struct {
@@ -18,6 +20,43 @@ type CommentStore struct {
 	db *sql.DB
 }
 
+func (s *CommentStore) Create(ctx context.Context, comment *Comment) error {
+
+	id, err := uuid.NewV7()
+	if err != nil {
+		return err
+	}
+
+	comment.Id = id.String()
+
+	query :=
+		`
+	INSERT INTO comments (id,post_id, user_id,content)
+	VALUES($1, $2, $3, $4)
+	RETURNING id, created_at
+		`
+	ctx, cancel := context.WithTimeout(ctx, QueryTimeoutDuration)
+	defer cancel()
+
+	err = s.db.QueryRowContext(
+		ctx,
+		query,
+		&comment.Id,
+		&comment.PostId,
+		&comment.UserId,
+		&comment.Content,
+	).Scan(
+		&comment.Id,
+		&comment.CreatedAt,
+	)
+
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
 func (s *CommentStore) GetPostById(ctx context.Context, postId string) ([]Comment, error) {
 
 	query := `
@@ -27,6 +66,9 @@ func (s *CommentStore) GetPostById(ctx context.Context, postId string) ([]Commen
 	WHERE c.post_id = $1
 	ORDER BY c.created_at DESC;
 	`
+
+	ctx, cancel := context.WithTimeout(ctx, QueryTimeoutDuration)
+	defer cancel()
 
 	rows, err := s.db.QueryContext(
 		ctx,
