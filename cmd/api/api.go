@@ -64,7 +64,16 @@ func (app *application) mount() *chi.Mux {
 		//users
 		r.Route("/users", func(r chi.Router) {
 			r.Route("/{userId}", func(r chi.Router) {
+				r.Use(app.userContextMiddleware)
+
 				r.Get("/", app.getUserHandler)
+
+				r.Put("/follow", app.followUserHandler)
+				r.Put("/unfollow", app.unfollowUserHandler)
+			})
+
+			r.Group(func(r chi.Router) {
+				r.Get("/feed", app.getUserFeedHandler)
 			})
 		})
 
