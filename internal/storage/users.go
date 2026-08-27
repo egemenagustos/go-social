@@ -3,23 +3,47 @@ package store
 import (
 	"context"
 	"database/sql"
+	"errors"
+	"time"
 
 	"github.com/google/uuid"
+	"golang.org/x/crypto/bcrypt"
+)
+
+var (
+	ErrDuplicateEmail    = errors.New("A user with that email already exist!")
+	ErrDuplicateUsername = errors.New("A user with that username already exist!")
 )
 
 type User struct {
-	Id        string `json:"id"`
-	Username  string `json:"username"`
-	Email     string `json:"email"`
-	Password  string `json:"-"`
-	CreatedAt string `json:"created_at"`
+	Id        string   `json:"id"`
+	Username  string   `json:"username"`
+	Email     string   `json:"email"`
+	Password  password `json:"-"`
+	CreatedAt string   `json:"created_at"`
+}
+
+type password struct {
+	text *string
+	hash []byte
+}
+
+func (p *password) Set(text string) error {
+	hash, err := bcrypt.GenerateFromPassword([]byte(text), bcrypt.DefaultCost)
+	if err != nil {
+		return err
+	}
+
+	p.text = &text
+	p.hash = hash
+	return nil
 }
 
 type UserStore struct {
 	db *sql.DB
 }
 
-func (u *UserStore) Create(ctx context.Context, user *User) error {
+func (u *UserStore) Create(ctx context.Context, tx *sql.Tx, user *User) error {
 
 	id, err := uuid.NewV7()
 	if err != nil {
@@ -36,7 +60,7 @@ func (u *UserStore) Create(ctx context.Context, user *User) error {
 	ctx, cancel := context.WithTimeout(ctx, QueryTimeoutDuration)
 	defer cancel()
 
-	err = u.db.QueryRowContext(
+	err = tx.QueryRowContext(
 		ctx,
 		query,
 		user.Id,
@@ -49,7 +73,14 @@ func (u *UserStore) Create(ctx context.Context, user *User) error {
 	)
 
 	if err != nil {
-		return err
+		switch {
+		case err.Error() == `pq: duplicate key value violates unique constraint "users_email_key"`:
+			return ErrDuplicateEmail
+		case err.Error() == `pq: duplicate key value violates unique constraint "users_username_key`:
+			return ErrDuplicateUsername
+		default:
+			return err
+		}
 	}
 
 	return nil
@@ -86,4 +117,33 @@ func (u *UserStore) GetById(ctx context.Context, id string) (*User, error) {
 	}
 
 	return user, nil
+}
+
+func (u *UserStore) CreateAndInvite(ctx context.Context, user *User, token string, invitationExp time.Duration) error {
+	return withTx(u.db, ctx, func(tx *sql.Tx) error {
+		if err := u.Create(ctx, tx, user); err != nil {
+			return err
+		}
+
+		if err := u.createAndInvite(ctx, tx, user, token, invitationExp, user.Id); err != nil {
+			return err
+		}
+
+		return nil
+	})
+}
+
+func (u *UserStore) createAndInvite(ctx context.Context, tx *sql.Tx, user *User, token string, invitationExp time.Duration, userId string) error {
+
+	query := `INSERT INTO user_invitations (token, user_id, expiry) VALUES ($1,$2,$3)`
+
+	ctx, cancel := context.WithTimeout(ctx, QueryTimeoutDuration)
+	defer cancel()
+
+	_, err := tx.ExecContext(ctx, query, token, userId, time.Now().Add(invitationExp))
+	if err != nil {
+		return err
+	}
+
+	return nil
 }

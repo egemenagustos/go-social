@@ -1,18 +1,23 @@
 package main
 
 import (
+	"fmt"
 	store "go-social/internal/storage"
-	"log"
 	"net/http"
 	"time"
 
+	"go-social/docs"
+
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	httpSwagger "github.com/swaggo/http-swagger"
+	"go.uber.org/zap"
 )
 
 type application struct {
 	config config
 	store  store.Storage
+	logger *zap.SugaredLogger
 }
 
 type dbConfig struct {
@@ -23,9 +28,15 @@ type dbConfig struct {
 }
 
 type config struct {
-	addr string
-	db   dbConfig
-	env  string
+	addr   string
+	db     dbConfig
+	env    string
+	apiURL string
+	mail   mailConfig
+}
+
+type mailConfig struct {
+	exp time.Duration
 }
 
 func (app *application) mount() *chi.Mux {
@@ -42,6 +53,10 @@ func (app *application) mount() *chi.Mux {
 
 		//health
 		r.Get("/health", app.healthCheckHandler)
+
+		//swagger
+		docsUrl := fmt.Sprintf("%s/swagger/doc.json", app.config.addr)
+		r.Get("/swagger/*", httpSwagger.Handler(httpSwagger.URL(docsUrl)))
 
 		//posts
 		r.Route("/posts", func(r chi.Router) {
@@ -75,6 +90,10 @@ func (app *application) mount() *chi.Mux {
 			r.Group(func(r chi.Router) {
 				r.Get("/feed", app.getUserFeedHandler)
 			})
+
+			r.Route("/authentication", func(r chi.Router) {
+				r.Post("/user", app.registerUserHandler)
+			})
 		})
 
 	})
@@ -84,6 +103,10 @@ func (app *application) mount() *chi.Mux {
 
 func (app *application) run(mux *chi.Mux) error {
 
+	docs.SwaggerInfo.Version = version
+	docs.SwaggerInfo.Host = app.config.apiURL
+	docs.SwaggerInfo.BasePath = "/v1"
+
 	srv := &http.Server{
 		Addr:         app.config.addr,
 		Handler:      mux,
@@ -92,7 +115,7 @@ func (app *application) run(mux *chi.Mux) error {
 		IdleTimeout:  time.Minute,
 	}
 
-	log.Printf("server has started at %s", app.config.addr)
+	app.logger.Infow("server has started", "addr", app.config.addr, "env", app.config.env)
 
 	return srv.ListenAndServe()
 }
