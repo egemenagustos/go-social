@@ -12,6 +12,20 @@ type userKey string
 
 const userCtx userKey = "user"
 
+// GetUser godoc
+//
+//	@Summary		fetches a user profile
+//	@Description	fetches a user profile
+//	@Tags			users
+//	@Accept			json
+//	@Produce		json
+//	@Param			id	path		string	true	"User Id"
+//	@Success		200	{object}	store.User
+//	@Failure		400	{object}	error
+//	@Failure		404	{object}	error
+//	@Failure		500	{object}	error
+//	@Security		ApiKeyAuth
+//	@Router			/users/{id} [get]
 func (app *application) getUserHandler(w http.ResponseWriter, r *http.Request) {
 	user := getUserFromContext(r)
 
