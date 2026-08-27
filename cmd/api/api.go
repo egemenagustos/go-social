@@ -78,6 +78,9 @@ func (app *application) mount() *chi.Mux {
 
 		//users
 		r.Route("/users", func(r chi.Router) {
+
+			r.Put("/activate/{token}", app.activateUserHandler)
+
 			r.Route("/{userId}", func(r chi.Router) {
 				r.Use(app.userContextMiddleware)
 
@@ -90,10 +93,10 @@ func (app *application) mount() *chi.Mux {
 			r.Group(func(r chi.Router) {
 				r.Get("/feed", app.getUserFeedHandler)
 			})
+		})
 
-			r.Route("/authentication", func(r chi.Router) {
-				r.Post("/user", app.registerUserHandler)
-			})
+		r.Route("/authentication", func(r chi.Router) {
+			r.Post("/user", app.registerUserHandler)
 		})
 
 	})
