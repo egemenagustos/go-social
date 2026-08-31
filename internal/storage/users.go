@@ -159,6 +159,53 @@ func (u *UserStore) Activate(ctx context.Context, token string) error {
 	})
 }
 
+func (u *UserStore) Delete(ctx context.Context, userId string) error {
+
+	return withTx(u.db, ctx, func(tx *sql.Tx) error {
+		if err := u.delete(ctx, tx, userId); err != nil {
+			return err
+		}
+
+		if err := u.deleteUserInvitations(ctx, tx, userId); err != nil {
+			return err
+		}
+
+		return nil
+	})
+}
+
+func (u *UserStore) GetByEmail(ctx context.Context, email string) (user *User, err error) {
+
+	query := `SELECT id, username,email, password, created_at FROM users where email =$1 AND is_active=true`
+
+	ctx, cancel := context.WithTimeout(ctx, QueryTimeoutDuration)
+	defer cancel()
+
+	user = &User{}
+
+	err = u.db.QueryRowContext(
+		ctx,
+		query,
+		user.Id,
+	).Scan(
+		&user.Id,
+		&user.Username,
+		&user.Password,
+		&user.CreatedAt,
+	)
+
+	if err != nil {
+		switch err {
+		case sql.ErrNoRows:
+			return nil, ErrNotFound
+		default:
+			return nil, err
+		}
+	}
+
+	return user, nil
+}
+
 func (u *UserStore) createUserInvitation(ctx context.Context, tx *sql.Tx, token string, invitationExp time.Duration, userId string) error {
 
 	query := `INSERT INTO user_invitations (token, user_id, expiry) VALUES ($1,$2,$3)`
@@ -256,6 +303,25 @@ func (u *UserStore) deleteUserInvitations(ctx context.Context, tx *sql.Tx, userI
 	defer cancel()
 
 	_, err := tx.ExecContext(
+		ctx,
+		query,
+		userId,
+	)
+
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (u *UserStore) delete(ctx context.Context, tx *sql.Tx, userId string) error {
+	query := `DELETE FROM users where user_id = $1`
+
+	ctx, cancel := context.WithTimeout(ctx, QueryTimeoutDuration)
+	defer cancel()
+
+	_, err := u.db.ExecContext(
 		ctx,
 		query,
 		userId,

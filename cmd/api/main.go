@@ -1,8 +1,10 @@
 package main
 
 import (
+	"go-social/internal/auth"
 	"go-social/internal/db"
 	"go-social/internal/env"
+	"go-social/internal/mailer"
 	store "go-social/internal/storage"
 	"time"
 
@@ -30,9 +32,18 @@ const version = "0.0.1"
 func main() {
 
 	cfg := config{
-		addr:   env.GetString("ADDR", ":8080"),
-		apiURL: env.GetString("EXTERNAL_URL", "localhost:8080"),
-		mail:   mailConfig{exp: time.Hour * 24 * 3},
+		addr:        env.GetString("ADDR", ":8080"),
+		apiURL:      env.GetString("EXTERNAL_URL", "localhost:8080"),
+		frontendURL: env.GetString("FRONTEND_URL", "localhost:4200"),
+		mail: mailConfig{exp: time.Hour * 24 * 3, sendGrid: sendGridConfig{
+			apiKey: env.GetString("SENDGRID_API_KEY", ""),
+		},
+			fromEmail: "hello@fasigo4486@dd2car.com",
+			mailTrap: mailTrapConfig{
+				apiKey: env.GetString("MAILTRAP_API_KEY", "t53w5"),
+			},
+		},
+
 		db: dbConfig{
 			addr:         env.GetString("DB_ADDR", "postgres://admin:adminpassword@localhost/social?sslmode=disable"),
 			maxOpenConns: env.GetInt("DB_MAX_OPEN_CONNS", 30),
@@ -40,6 +51,17 @@ func main() {
 			maxIdleTime:  env.GetString("DB_MAX_IDLE_TIME", "15m"),
 		},
 		env: env.GetString("ENV", "development"),
+		auth: authConfig{
+			basic: basicConfig{
+				user:     env.GetString("AUTH_BASIC", "admin"),
+				password: env.GetString("AUTH_PASSWORD", "admin"),
+			},
+			token: tokenConfig{
+				secret: env.GetString("AUTH_TOKEN_SECRET", "example"),
+				exp:    time.Hour * 24 * 3,
+				issuer: "gosocial",
+			},
+		},
 	}
 
 	logger := zap.Must(zap.NewProduction()).Sugar()
@@ -61,7 +83,14 @@ func main() {
 
 	store := store.NewStorage(db)
 
-	app := &application{config: cfg, store: store, logger: logger}
+	mailtrap, err := mailer.NewMailTrapClient(cfg.mail.mailTrap.apiKey, cfg.mail.fromEmail)
+	if err != nil {
+		logger.Fatal(err)
+	}
+
+	jwtAuthenticator := auth.NewJwtAuthenticator(cfg.auth.token.secret, cfg.auth.token.issuer, cfg.auth.token.issuer)
+
+	app := &application{config: cfg, store: store, logger: logger, mailer: mailtrap, authenticator: jwtAuthenticator}
 
 	mux := app.mount()
 	logger.Fatal(app.run(mux))
