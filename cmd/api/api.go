@@ -2,6 +2,8 @@ package main
 
 import (
 	"fmt"
+	"go-social/internal/auth"
+	"go-social/internal/mailer"
 	store "go-social/internal/storage"
 	"net/http"
 	"time"
@@ -15,9 +17,11 @@ import (
 )
 
 type application struct {
-	config config
-	store  store.Storage
-	logger *zap.SugaredLogger
+	config        config
+	store         store.Storage
+	logger        *zap.SugaredLogger
+	mailer        mailer.Client
+	authenticator auth.Authenticator
 }
 
 type dbConfig struct {
@@ -28,15 +32,44 @@ type dbConfig struct {
 }
 
 type config struct {
-	addr   string
-	db     dbConfig
-	env    string
-	apiURL string
-	mail   mailConfig
+	addr        string
+	db          dbConfig
+	env         string
+	apiURL      string
+	mail        mailConfig
+	frontendURL string
+	auth        authConfig
+}
+
+type authConfig struct {
+	basic basicConfig
+	token tokenConfig
+}
+
+type tokenConfig struct {
+	secret string
+	exp    time.Duration
+	issuer string
+}
+
+type basicConfig struct {
+	user     string
+	password string
 }
 
 type mailConfig struct {
-	exp time.Duration
+	sendGrid  sendGridConfig
+	mailTrap  mailTrapConfig
+	fromEmail string
+	exp       time.Duration
+}
+
+type mailTrapConfig struct {
+	apiKey string
+}
+
+type sendGridConfig struct {
+	apiKey string
 }
 
 func (app *application) mount() *chi.Mux {
@@ -52,7 +85,7 @@ func (app *application) mount() *chi.Mux {
 	r.Route("/v1", func(r chi.Router) {
 
 		//health
-		r.Get("/health", app.healthCheckHandler)
+		r.With(app.AuthMiddleware()).Get("/health", app.healthCheckHandler)
 
 		//swagger
 		docsUrl := fmt.Sprintf("%s/swagger/doc.json", app.config.addr)
@@ -97,6 +130,7 @@ func (app *application) mount() *chi.Mux {
 
 		r.Route("/authentication", func(r chi.Router) {
 			r.Post("/user", app.registerUserHandler)
+			r.Post("/token", app.createTokenHandler)
 		})
 
 	})
