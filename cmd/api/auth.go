@@ -135,12 +135,19 @@ func (app *application) createTokenHandler(w http.ResponseWriter, r *http.Reques
 		}
 	}
 
+	err = user.Password.CompareHashAndPassword(payload.Password)
+	if err != nil {
+		app.unauthorizedErrorReponse(w, r, err)
+		return
+	}
+
 	claims := jwt.MapClaims{
 		"sub": user.Id,
 		"exp": time.Now().Add(app.config.auth.token.exp).Unix(),
 		"iat": time.Now().Unix(),
 		"nbf": time.Now().Unix(),
 		"iss": app.config.auth.token.issuer,
+		"aud": app.config.auth.token.issuer,
 	}
 
 	token, err := app.authenticator.GenerateToken(claims)

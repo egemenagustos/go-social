@@ -24,6 +24,8 @@ type User struct {
 	Password  password `json:"-"`
 	CreatedAt string   `json:"created_at"`
 	IsActive  bool     `json:"is_active"`
+	RoleId    string   `json:"role_id"`
+	Role      Role     `json:"role"`
 }
 
 type password struct {
@@ -42,6 +44,14 @@ func (p *password) Set(text string) error {
 	return nil
 }
 
+func (p *password) CompareHashAndPassword(text string) error {
+	if p.hash == nil {
+		return errors.New("password hash is nil")
+	}
+
+	return bcrypt.CompareHashAndPassword(p.hash, []byte(text))
+}
+
 type UserStore struct {
 	db *sql.DB
 }
@@ -56,12 +66,17 @@ func (u *UserStore) Create(ctx context.Context, tx *sql.Tx, user *User) error {
 	user.Id = id.String()
 
 	query := `
-	INSERT INTO users (id,username,email,password)
-	VALUES($1, $2, $3, $4) RETURNING id, created_at
+	INSERT INTO users (id,username,email,password,role_id)
+	VALUES($1, $2, $3, $4, (SELECT id from roles where name = $5)) RETURNING id, created_at
 	`
 
 	ctx, cancel := context.WithTimeout(ctx, QueryTimeoutDuration)
 	defer cancel()
+
+	role := user.Role.Name
+	if role == "" {
+		role = "user"
+	}
 
 	err = tx.QueryRowContext(
 		ctx,
@@ -70,6 +85,7 @@ func (u *UserStore) Create(ctx context.Context, tx *sql.Tx, user *User) error {
 		user.Username,
 		user.Email,
 		user.Password.hash,
+		role,
 	).Scan(
 		&user.Id,
 		&user.CreatedAt,
@@ -93,7 +109,7 @@ func (u *UserStore) GetById(ctx context.Context, id string) (*User, error) {
 
 	user := &User{}
 
-	query := `SELECT id, email, username, password, created_at FROM users where id = $1`
+	query := `SELECT users.id, email, username, created_at, roles.* FROM users JOIN roles on(users.role_id = roles.id) where users.id = $1`
 
 	ctx, cancel := context.WithTimeout(ctx, QueryTimeoutDuration)
 	defer cancel()
@@ -106,8 +122,11 @@ func (u *UserStore) GetById(ctx context.Context, id string) (*User, error) {
 		&user.Id,
 		&user.Email,
 		&user.Username,
-		&user.Password,
 		&user.CreatedAt,
+		&user.Role.Id,
+		&user.Role.Name,
+		&user.Role.Level,
+		&user.Role.Description,
 	)
 
 	if err != nil {
@@ -176,7 +195,7 @@ func (u *UserStore) Delete(ctx context.Context, userId string) error {
 
 func (u *UserStore) GetByEmail(ctx context.Context, email string) (user *User, err error) {
 
-	query := `SELECT id, username,email, password, created_at FROM users where email =$1 AND is_active=true`
+	query := `SELECT id, username,email, created_at, password FROM users where email= $1 AND is_active=true`
 
 	ctx, cancel := context.WithTimeout(ctx, QueryTimeoutDuration)
 	defer cancel()
@@ -186,12 +205,13 @@ func (u *UserStore) GetByEmail(ctx context.Context, email string) (user *User, e
 	err = u.db.QueryRowContext(
 		ctx,
 		query,
-		user.Id,
+		email,
 	).Scan(
 		&user.Id,
 		&user.Username,
-		&user.Password,
+		&user.Email,
 		&user.CreatedAt,
+		&user.Password.hash,
 	)
 
 	if err != nil {
