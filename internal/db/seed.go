@@ -156,6 +156,8 @@ var comments = []string{
 	"Bir sonraki yazıda test tarafını da anlatabilirsin.",
 }
 
+var roleId = "01a06219-d135-73a2-bf37-74637aa83ee6"
+
 func Seed(store store.Storage, db *sql.DB) {
 	ctx := context.Background()
 
@@ -201,6 +203,9 @@ func generateUsers(num int) []*store.User {
 			Id:       id.String(),
 			Username: names[i%len(names)] + fmt.Sprintf("%d", i),
 			Email:    names[i%len(names)] + fmt.Sprintf("%d", i) + "@mail.com",
+			Role: store.Role{
+				Name: "user",
+			},
 		}
 	}
 
