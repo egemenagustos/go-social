@@ -6,8 +6,10 @@ import (
 	"go-social/internal/env"
 	"go-social/internal/mailer"
 	store "go-social/internal/storage"
+	"go-social/internal/storage/cache"
 	"time"
 
+	"github.com/go-redis/redis/v8"
 	"go.uber.org/zap"
 )
 
@@ -35,6 +37,12 @@ func main() {
 		addr:        env.GetString("ADDR", ":8080"),
 		apiURL:      env.GetString("EXTERNAL_URL", "localhost:8080"),
 		frontendURL: env.GetString("FRONTEND_URL", "localhost:4200"),
+		redisCfg: redisConfig{
+			addr:    env.GetString("REDIS_ADDR", "localhost:6379"),
+			pw:      env.GetString("REDIS_PW", ""),
+			db:      env.GetInt("REDIS_DB", 0),
+			enabled: env.GetBool("REDIS_ENABLED", true),
+		},
 		mail: mailConfig{exp: time.Hour * 24 * 3, sendGrid: sendGridConfig{
 			apiKey: env.GetString("SENDGRID_API_KEY", ""),
 		},
@@ -81,7 +89,15 @@ func main() {
 	defer db.Close()
 	logger.Info("database connection pool established!")
 
+	var rdb *redis.Client
+	if cfg.redisCfg.enabled {
+		cache := cache.NewRedisClient(cfg.redisCfg.addr, cfg.redisCfg.pw, cfg.redisCfg.db)
+		rdb = cache
+		logger.Info("redis cache connection established!")
+	}
+
 	store := store.NewStorage(db)
+	cacheStore := cache.NewRedisStorage(rdb)
 
 	mailtrap, err := mailer.NewMailTrapClient(cfg.mail.mailTrap.apiKey, cfg.mail.fromEmail)
 	if err != nil {
@@ -90,7 +106,14 @@ func main() {
 
 	jwtAuthenticator := auth.NewJwtAuthenticator(cfg.auth.token.secret, cfg.auth.token.issuer, cfg.auth.token.issuer)
 
-	app := &application{config: cfg, store: store, logger: logger, mailer: mailtrap, authenticator: jwtAuthenticator}
+	app := &application{
+		config:        cfg,
+		store:         store,
+		logger:        logger,
+		mailer:        mailtrap,
+		authenticator: jwtAuthenticator,
+		cacheStorage:  cacheStore,
+	}
 
 	mux := app.mount()
 	logger.Fatal(app.run(mux))
