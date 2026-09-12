@@ -46,9 +46,9 @@ func (app *application) AuthTokenMiddleware(next http.Handler) http.Handler {
 
 		ctx := r.Context()
 
-		user, err := app.store.Users.GetById(ctx, userId.(string))
+		user, err := app.getUser(ctx, userId.(string))
 		if err != nil {
-			app.unauthorizedErrorReponse(w, r, fmt.Errorf("invalid token claims!"))
+			app.unauthorizedErrorReponse(w, r, err)
 			return
 		}
 
@@ -129,4 +129,29 @@ func (app *application) checkRolePredence(ctx context.Context, user *store.User,
 	}
 
 	return user.Role.Level > role.Level, nil
+}
+
+func (app *application) getUser(ctx context.Context, userId string) (*store.User, error) {
+
+	if !app.config.redisCfg.enabled {
+		return app.store.Users.GetById(ctx, userId)
+	}
+
+	user, err := app.cacheStorage.Users.Get(ctx, userId)
+	if err != nil {
+		return nil, err
+	}
+
+	if user == nil {
+		user, err = app.store.Users.GetById(ctx, userId)
+		if err != nil {
+			return nil, err
+		}
+
+		if err := app.cacheStorage.Users.Set(ctx, user); err != nil {
+			return nil, err
+		}
+	}
+
+	return user, nil
 }

@@ -5,6 +5,7 @@ import (
 	"go-social/internal/auth"
 	"go-social/internal/mailer"
 	store "go-social/internal/storage"
+	"go-social/internal/storage/cache"
 	"net/http"
 	"time"
 
@@ -22,6 +23,7 @@ type application struct {
 	logger        *zap.SugaredLogger
 	mailer        mailer.Client
 	authenticator auth.Authenticator
+	cacheStorage  cache.Storage
 }
 
 type dbConfig struct {
@@ -39,6 +41,14 @@ type config struct {
 	mail        mailConfig
 	frontendURL string
 	auth        authConfig
+	redisCfg    redisConfig
+}
+
+type redisConfig struct {
+	addr    string
+	pw      string
+	db      int
+	enabled bool
 }
 
 type authConfig struct {
